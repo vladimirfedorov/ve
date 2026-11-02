@@ -5,15 +5,23 @@ import ve.document;
 
 interface Codec {
     string name();
-    dchar decode(const Document doc, ref size_t pos);    // character at pos; moves pos past it
     size_t prevBoundary(const Document doc, size_t pos); // start of the character ending at pos
     size_t encode(dchar c, ref ubyte[4] buf);            // bytes written, 0 if c can't be encoded
+
+    // Decodes character at pos, moves pos past it
+    // invalid characters return U+FFFD and set invalid true
+    dchar decode(const Document doc, ref size_t pos, out bool invalid);
+
+    final dchar decode(const Document doc, ref size_t pos) {
+        bool invalid;
+        return decode(doc, pos, invalid);
+    }
 }
 
 final class Utf8Codec : Codec {
     string name() { return "UTF-8"; }
 
-    dchar decode(const Document doc, ref size_t pos) {
+    dchar decode(const Document doc, ref size_t pos, out bool invalid) {
         ubyte b = doc[pos];
         if (b < 0x80) {
             pos++;
@@ -32,6 +40,7 @@ final class Utf8Codec : Codec {
 
         if (n == 0 || n >= doc.length - pos) {
             pos++;
+            invalid = true;
             return replacementDchar;
         }
         uint c = b & (0x3F >> n);   // payload bits of the lead byte
@@ -39,6 +48,7 @@ final class Utf8Codec : Codec {
             ubyte next = doc[pos + i];
             if (next < lo || next > hi) {
                 pos++;
+                invalid = true;
                 return replacementDchar;
             }
             c = (c << 6) | (next & 0x3F);
@@ -53,7 +63,8 @@ final class Utf8Codec : Codec {
         size_t start = pos - 1;
         while (start > 0 && pos - start < 4 && (doc[start] & 0xC0) == 0x80) start--;
         size_t end = start;
-        decode(doc, end);
+        bool invalid;
+        decode(doc, end, invalid);
         return end == pos ? start : pos - 1;
     }
 
@@ -76,8 +87,12 @@ version (unittest) {
         size_t[] starts;
         for (size_t pos = 0; pos < doc.length; ) {
             starts ~= pos;
-            chars ~= codec.decode(doc, pos);
-            if (chars[$ - 1] == replacementDchar && pos - starts[$ - 1] == 1) invalid++;
+            bool bad;
+            chars ~= codec.decode(doc, pos, bad);
+            if (bad) {
+                assert(chars[$ - 1] == replacementDchar && pos - starts[$ - 1] == 1);
+                invalid++;
+            }
         }
         size_t pos = doc.length;
         foreach_reverse (start; starts) {
