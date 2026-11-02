@@ -18,45 +18,51 @@ interface Codec {
     }
 }
 
-final class Utf8Codec : Codec {
-    string name() { return "UTF-8"; }
+// Decodes the UTF-8 character at pos, moves pos past it
+// an invalid byte returns U+FFFD, sets invalid and moves one byte, the next character is kept
+dchar decodeUtf8(Bytes)(const Bytes bytes, ref size_t pos, out bool invalid) {
+    ubyte b = bytes[pos];
+    if (b < 0x80) {
+        pos++;
+        return b;
+    }
 
-    dchar decode(const Document doc, ref size_t pos, out bool invalid) {
-        ubyte b = doc[pos];
-        if (b < 0x80) {
-            pos++;
-            return b;
-        }
+    size_t n;                   // continuation bytes
+    ubyte lo = 0x80, hi = 0xBF; // range of the first one
+    if (b >= 0xC2 && b <= 0xDF) n = 1;
+    else if (b >= 0xE0 && b <= 0xEF) n = 2;
+    else if (b >= 0xF0 && b <= 0xF4) n = 3;
+    if (b == 0xE0) lo = 0xA0;   // overlong
+    if (b == 0xED) hi = 0x9F;   // surrogates
+    if (b == 0xF0) lo = 0x90;   // overlong
+    if (b == 0xF4) hi = 0x8F;   // above U+10FFFF
 
-        size_t n;                   // continuation bytes
-        ubyte lo = 0x80, hi = 0xBF; // range of the first one
-        if (b >= 0xC2 && b <= 0xDF) n = 1;
-        else if (b >= 0xE0 && b <= 0xEF) n = 2;
-        else if (b >= 0xF0 && b <= 0xF4) n = 3;
-        if (b == 0xE0) lo = 0xA0;   // overlong
-        if (b == 0xED) hi = 0x9F;   // surrogates
-        if (b == 0xF0) lo = 0x90;   // overlong
-        if (b == 0xF4) hi = 0x8F;   // above U+10FFFF
-
-        if (n == 0 || n >= doc.length - pos) {
+    if (n == 0 || n >= bytes.length - pos) {
+        pos++;
+        invalid = true;
+        return replacementDchar;
+    }
+    uint c = b & (0x3F >> n);   // payload bits of the lead byte
+    foreach (i; 1 .. n + 1) {
+        ubyte next = bytes[pos + i];
+        if (next < lo || next > hi) {
             pos++;
             invalid = true;
             return replacementDchar;
         }
-        uint c = b & (0x3F >> n);   // payload bits of the lead byte
-        foreach (i; 1 .. n + 1) {
-            ubyte next = doc[pos + i];
-            if (next < lo || next > hi) {
-                pos++;
-                invalid = true;
-                return replacementDchar;
-            }
-            c = (c << 6) | (next & 0x3F);
-            lo = 0x80;
-            hi = 0xBF;
-        }
-        pos += n + 1;
-        return c;
+        c = (c << 6) | (next & 0x3F);
+        lo = 0x80;
+        hi = 0xBF;
+    }
+    pos += n + 1;
+    return c;
+}
+
+final class Utf8Codec : Codec {
+    string name() { return "UTF-8"; }
+
+    dchar decode(const Document doc, ref size_t pos, out bool invalid) {
+        return decodeUtf8(doc, pos, invalid);
     }
 
     size_t prevBoundary(const Document doc, size_t pos) {
