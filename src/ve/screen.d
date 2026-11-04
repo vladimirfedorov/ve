@@ -168,8 +168,9 @@ struct Canvas {
     }
 }
 
+// For tests
 version (unittest) {
-    private string[] rows(const Screen screen) {
+    string[] rows(const Screen screen) {
         string[] result;
         foreach (y; 0 .. screen.h) {
             dchar[] row;
@@ -178,6 +179,9 @@ version (unittest) {
         }
         return result;
     }
+
+    Cell cellAt(const Screen screen, int x, int y) { return screen.cells[y * screen.w + x]; }
+    bool cursorAt(const Screen screen, int x, int y) { return screen.cursor == Cursor(true, x, y); }
 }
 
 // Style changes
