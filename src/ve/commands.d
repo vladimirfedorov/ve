@@ -12,23 +12,24 @@ import ve.keys;
 // Editor actions that keys are bound to
 enum Cmd {
     none, // unbinds action
-    quit, save,
+    quit, save, saveAs,
+    open, closeBuffer, nextBuffer, prevBuffer,
     cursorLeft, cursorRight, cursorUp, cursorDown,
     lineStart, lineEnd, pageUp, pageDown,
     newline, deleteBack, deleteForward, insertTab,
 }
 
 // Key bindings by section
-// "global"  every view
+// "global"  every decoder
 // "text"    code/text
 // "hex"     raw hex editor
 struct Keymap {
     Cmd[int][string] sections;
 
-    // Command for `key` in the `view` section, else in "global"
-    // Cmd.none in the view's section hides the global one
-    Cmd lookup(string view, int key) const {
-        if (auto section = view in sections)
+    // Command for `key` in the `decoder` section, else in "global"
+    // Cmd.none in the decoder's section hides the global one
+    Cmd lookup(string decoder, int key) const {
+        if (auto section = decoder in sections)
             if (auto cmd = key in *section) return *cmd;
         if (auto section = "global" in sections)
             if (auto cmd = key in *section) return *cmd;
@@ -44,6 +45,13 @@ Keymap defaultKeymap() {
         ctrl('q'):      Cmd.quit,
         alt('s'):       Cmd.save,
         ctrl('s'):      Cmd.save,
+        alt('S'):       Cmd.saveAs,
+        alt('o'):       Cmd.open,
+        ctrl('o'):      Cmd.open,
+        alt('w'):       Cmd.closeBuffer,
+        ctrl('w'):      Cmd.closeBuffer,
+        alt('.'):       Cmd.nextBuffer,
+        alt(','):       Cmd.prevBuffer,
     ];
     keymap.sections["text"] = [
         keyLeft:        Cmd.cursorLeft,
@@ -102,7 +110,7 @@ string parseKeys(ref Keymap keymap, string text) {
             if (line.length > 2 && line[$ - 1] == ']' && ["global", "text", "hex"].canFind(line[1 .. $ - 1])) {
                 section = line[1 .. $ - 1];
             } else {
-                section = line; // collects the bindings below where no view looks them up
+                section = line;
                 problem = format("unknown section '%s'", line);
             }
         } else {
@@ -150,13 +158,13 @@ unittest {
     assert(error is null, error);
     assert(keymap.lookup("text", keyF2)     == Cmd.save);       // before any section: global
     assert(keymap.lookup("hex", keyF2)      == Cmd.save);
-    assert(keymap.lookup("text", ctrl('s')) == Cmd.quit);       // a view's section wins over global
+    assert(keymap.lookup("text", ctrl('s')) == Cmd.quit);
     assert(keymap.lookup("hex", ctrl('s'))  == Cmd.save);
     assert(keymap.lookup("text", '\t')      == Cmd.none);        // none unbinds
     assert(keymap.lookup("hex", '\t')       == Cmd.deleteBack);
     assert(keymap.lookup("text", ctrl('q')) == Cmd.none);
     assert(keymap.lookup("text", alt('q'))  == Cmd.quit);
-    assert(keymap.lookup("text", keyF3)     == Cmd.none);       // none in a view's section hides global
+    assert(keymap.lookup("text", keyF3)     == Cmd.none);       // none in a decoder's section hides global
     assert(keymap.lookup("hex", keyF3)      == Cmd.save);
 
     keymap = defaultKeymap();

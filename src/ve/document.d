@@ -3,6 +3,7 @@ module ve.document;
 import core.stdc.string : memmove;
 import std.algorithm.comparison : max, min;
 import std.file : exists, read;
+import std.path : baseName;
 import std.stdio : File;
 
 // removed bytes at pos were replaced by inserted bytes - called after every edit
@@ -29,6 +30,7 @@ final class Document {
         }
     }
 
+    string name() const { return path.length ? baseName(path) : "untitled"; }
     size_t length() const { return buf.length - (gapEnd - gapStart); }
     size_t opDollar() const { return length; }
 

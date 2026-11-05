@@ -1,14 +1,15 @@
-module ve.textview;
+module ve.textdecoder;
 
 import std.algorithm.comparison : max, min;
-import std.array : replaceInPlace;
+import std.algorithm.iteration : filter;
+import std.array : array, replaceInPlace;
 import std.format : format;
 import std.range : assumeSorted;
 import ve.codec;
 import ve.commands;
 import ve.document;
 import ve.screen;
-import ve.view;
+import ve.decoder;
 
 enum tabStop = 4;
 
@@ -44,9 +45,9 @@ struct LineIndex {
     }
 }
 
-// Code and text editor
+// Shows a document as editable text
 // The cursor is a byte offset on a character start, never inside a line break
-final class TextView : View {
+final class TextDecoder : Decoder {
     Codec codec;
     LineIndex lines;
     bool crlf;             // newline inserts "\r\n"
@@ -72,6 +73,10 @@ final class TextView : View {
     }
 
     override string kind() { return "text"; }
+
+    override void close() {
+        doc.listeners = doc.listeners.filter!(l => l != &onEdit).array;
+    }
 
     size_t lineStart(size_t line) { return lines.starts[line]; }
 
@@ -246,159 +251,159 @@ final class TextView : View {
 version (unittest) {
     import std.string : representation;
 
-    private TextView textView(string text) {
+    private TextDecoder textDecoder(string text) {
         Document doc = new Document;
         doc.insert(0, text.representation);
         doc.dirty = false;
-        return new TextView(doc, new Utf8Codec);
+        return new TextDecoder(doc, new Utf8Codec);
     }
 
-    private string text(TextView view) { return cast(string) view.doc.slice(0, view.doc.length); }
+    private string text(TextDecoder decoder) { return cast(string) decoder.doc.slice(0, decoder.doc.length); }
 
-    private size_t[2] at(TextView view) { return [view.lines.lineOf(view.pos), view.column(view.pos)]; }
+    private size_t[2] at(TextDecoder decoder) { return [decoder.lines.lineOf(decoder.pos), decoder.column(decoder.pos)]; }
 }
 
 // Lines
 unittest {
-    assert(textView("").lines.starts == [0]);
-    assert(textView("ab").lines.starts == [0]);
-    assert(textView("ab\n").lines.starts == [0, 3]);
-    assert(textView("a\nb\r\nc").lines.starts == [0, 2, 5]);
+    assert(textDecoder("").lines.starts == [0]);
+    assert(textDecoder("ab").lines.starts == [0]);
+    assert(textDecoder("ab\n").lines.starts == [0, 3]);
+    assert(textDecoder("a\nb\r\nc").lines.starts == [0, 2, 5]);
 
-    TextView view = textView("a\r\nb\rc\r"); // a "\r" is hidden only before "\n"
-    assert(view.lineEnd(0) == 1 && view.lineEnd(1) == 7 && view.crlf);
-    assert(textView("\r\n").lineEnd(0) == 0);
-    assert(textView("\n\n").lineEnd(0) == 0);
-    assert(!textView("a\nb\r").crlf);
+    TextDecoder decoder = textDecoder("a\r\nb\rc\r"); // a "\r" is hidden only before "\n"
+    assert(decoder.lineEnd(0) == 1 && decoder.lineEnd(1) == 7 && decoder.crlf);
+    assert(textDecoder("\r\n").lineEnd(0) == 0);
+    assert(textDecoder("\n\n").lineEnd(0) == 0);
+    assert(!textDecoder("a\nb\r").crlf);
 }
 
 // Line starts updated by edits match a rebuild
 unittest {
     import std.random : Random, choice, uniform;
 
-    TextView view = textView("");
+    TextDecoder decoder = textDecoder("");
     immutable ubyte[] alphabet = ['a', '\n', '\n', '\r', 0xC3, 0xA9];
     Random rnd = Random(1);
     foreach (_; 0 .. 2000) {
-        size_t at = uniform(0, view.doc.length + 1, rnd);
-        size_t count = uniform(0, min(3, view.doc.length - at) + 1, rnd);
+        size_t at = uniform(0, decoder.doc.length + 1, rnd);
+        size_t count = uniform(0, min(3, decoder.doc.length - at) + 1, rnd);
         ubyte[] bytes = new ubyte[](uniform(0, 6, rnd));
         foreach (ref b; bytes) b = alphabet.choice(rnd);
-        view.doc.replace(at, count, bytes);
+        decoder.doc.replace(at, count, bytes);
 
-        LineIndex rebuilt = view.lines;
-        rebuilt.rebuild(view.doc);
-        assert(view.lines.starts == rebuilt.starts);
-        assert(view.pos <= view.doc.length);
+        LineIndex rebuilt = decoder.lines;
+        rebuilt.rebuild(decoder.doc);
+        assert(decoder.lines.starts == rebuilt.starts);
+        assert(decoder.pos <= decoder.doc.length);
     }
-    assert(view.lines.count > 100);
+    assert(decoder.lines.count > 100);
 }
 
 // Typing, moving and deleting
 unittest {
-    TextView view = textView("");
-    foreach (dchar c; "héllo") view.input(c);
-    view.execute(Cmd.newline);
-    view.input('x');
-    assert(view.text == "héllo\nx" && view.doc.dirty && !view.crlf);
-    view.execute(Cmd.cursorUp);
-    assert(view.pos == 1);
-    view.execute(Cmd.cursorRight); // over both bytes of é
-    assert(view.pos == 3);
-    view.execute(Cmd.deleteBack);
-    assert(view.text == "hllo\nx" && view.pos == 1);
-    view.execute(Cmd.lineEnd);
-    view.execute(Cmd.deleteForward); // joins the lines
-    assert(view.text == "hllox" && view.pos == 4);
-    view.execute(Cmd.cursorRight);
-    view.execute(Cmd.cursorRight);
-    assert(view.pos == 5);
-    view.execute(Cmd.insertTab);
-    assert(view.text == "hllox\t" && view.goalCol == 8);
-    assert(!view.execute(Cmd.save));
+    TextDecoder decoder = textDecoder("");
+    foreach (dchar c; "héllo") decoder.input(c);
+    decoder.execute(Cmd.newline);
+    decoder.input('x');
+    assert(decoder.text == "héllo\nx" && decoder.doc.dirty && !decoder.crlf);
+    decoder.execute(Cmd.cursorUp);
+    assert(decoder.pos == 1);
+    decoder.execute(Cmd.cursorRight); // over both bytes of é
+    assert(decoder.pos == 3);
+    decoder.execute(Cmd.deleteBack);
+    assert(decoder.text == "hllo\nx" && decoder.pos == 1);
+    decoder.execute(Cmd.lineEnd);
+    decoder.execute(Cmd.deleteForward); // joins the lines
+    assert(decoder.text == "hllox" && decoder.pos == 4);
+    decoder.execute(Cmd.cursorRight);
+    decoder.execute(Cmd.cursorRight);
+    assert(decoder.pos == 5);
+    decoder.execute(Cmd.insertTab);
+    assert(decoder.text == "hllox\t" && decoder.goalCol == 8);
+    assert(!decoder.execute(Cmd.save));
 }
 
 // CRLF line breaks are added and removed whole
 unittest {
-    TextView view = textView("ab\r\ncd\r\n");
-    view.execute(Cmd.lineEnd);
-    view.execute(Cmd.newline);
-    assert(view.text == "ab\r\n\r\ncd\r\n" && view.pos == 4);
-    view.execute(Cmd.deleteBack);
-    assert(view.text == "ab\r\ncd\r\n" && view.pos == 2);
-    view.execute(Cmd.cursorRight);
-    assert(view.pos == 4);
-    view.execute(Cmd.cursorLeft);
-    assert(view.pos == 2);
-    view.execute(Cmd.deleteForward);
-    assert(view.text == "abcd\r\n");
+    TextDecoder decoder = textDecoder("ab\r\ncd\r\n");
+    decoder.execute(Cmd.lineEnd);
+    decoder.execute(Cmd.newline);
+    assert(decoder.text == "ab\r\n\r\ncd\r\n" && decoder.pos == 4);
+    decoder.execute(Cmd.deleteBack);
+    assert(decoder.text == "ab\r\ncd\r\n" && decoder.pos == 2);
+    decoder.execute(Cmd.cursorRight);
+    assert(decoder.pos == 4);
+    decoder.execute(Cmd.cursorLeft);
+    assert(decoder.pos == 2);
+    decoder.execute(Cmd.deleteForward);
+    assert(decoder.text == "abcd\r\n");
 }
 
 // Vertical moves keep the display column
 unittest {
-    TextView view = textView("abcdef\nab\n\tcdef");
-    view.execute(Cmd.lineEnd);
-    view.execute(Cmd.cursorDown);
-    assert(view.at == [1, 2]);
-    view.execute(Cmd.cursorDown);
-    assert(view.at == [2, 6]);
-    view.execute(Cmd.cursorUp);
-    view.execute(Cmd.cursorUp);
-    assert(view.at == [0, 6]);
-    view.execute(Cmd.lineStart);
-    view.execute(Cmd.cursorRight);
-    view.execute(Cmd.cursorRight);
-    view.execute(Cmd.pageDown);
-    view.execute(Cmd.pageDown);
-    assert(view.at == [2, 0]); // inside the tab: its start
+    TextDecoder decoder = textDecoder("abcdef\nab\n\tcdef");
+    decoder.execute(Cmd.lineEnd);
+    decoder.execute(Cmd.cursorDown);
+    assert(decoder.at == [1, 2]);
+    decoder.execute(Cmd.cursorDown);
+    assert(decoder.at == [2, 6]);
+    decoder.execute(Cmd.cursorUp);
+    decoder.execute(Cmd.cursorUp);
+    assert(decoder.at == [0, 6]);
+    decoder.execute(Cmd.lineStart);
+    decoder.execute(Cmd.cursorRight);
+    decoder.execute(Cmd.cursorRight);
+    decoder.execute(Cmd.pageDown);
+    decoder.execute(Cmd.pageDown);
+    assert(decoder.at == [2, 0]); // inside the tab: its start
 }
 
 // Each invalid byte is one character
 unittest {
-    TextView view = textView("a\xFF\xFEb");
-    view.execute(Cmd.lineEnd);
-    assert(view.pos == 4 && view.at == [0, 4]);
-    view.execute(Cmd.cursorLeft);
-    view.execute(Cmd.cursorLeft);
-    assert(view.pos == 2);
-    view.execute(Cmd.deleteBack);
-    assert(view.text == "a\xFEb");
+    TextDecoder decoder = textDecoder("a\xFF\xFEb");
+    decoder.execute(Cmd.lineEnd);
+    assert(decoder.pos == 4 && decoder.at == [0, 4]);
+    decoder.execute(Cmd.cursorLeft);
+    decoder.execute(Cmd.cursorLeft);
+    assert(decoder.pos == 2);
+    decoder.execute(Cmd.deleteBack);
+    assert(decoder.text == "a\xFEb");
 }
 
 // Edits made elsewhere move the cursor
 unittest {
-    TextView view = textView("hello world");
-    view.pos = 6;                                   // before "world"
-    view.doc.insert(0, ">> ".representation);
-    assert(view.pos == 9);
-    view.doc.insert(9, "big ".representation);      // at the cursor: it stays before
-    assert(view.pos == 9 && view.text == ">> hello big world");
-    view.doc.remove(7, 4);                          // around the cursor
-    assert(view.pos == 7 && view.text == ">> hellg world");
-    view.doc.remove(0, 3);
-    assert(view.pos == 4);
+    TextDecoder decoder = textDecoder("hello world");
+    decoder.pos = 6;                                   // before "world"
+    decoder.doc.insert(0, ">> ".representation);
+    assert(decoder.pos == 9);
+    decoder.doc.insert(9, "big ".representation);      // at the cursor: it stays before
+    assert(decoder.pos == 9 && decoder.text == ">> hello big world");
+    decoder.doc.remove(7, 4);                          // around the cursor
+    assert(decoder.pos == 7 && decoder.text == ">> hellg world");
+    decoder.doc.remove(0, 3);
+    assert(decoder.pos == 4);
 }
 
 // Drawing
 unittest {
     Screen screen = new Screen(10, 4);
-    TextView view = textView("a\tb\x01\x7F\xFF\r\nline2\nx");
-    view.draw(screen.canvas, true);
+    TextDecoder decoder = textDecoder("a\tb\x01\x7F\xFF\r\nline2\nx");
+    decoder.draw(screen.canvas, true);
     assert(screen.rows == ["a   bA??  ", "line2     ", "x         ", "~         "]);
     assert(!screen.cellAt(4, 0).style.inverse && screen.cellAt(5, 0).style.inverse);
     assert(screen.cellAt(7, 0).style.inverse && screen.cellAt(0, 3).style.dim);
     assert(screen.cursorAt(0, 0));
 
-    view.execute(Cmd.pageDown);
-    assert(view.at == [2, 0]);
+    decoder.execute(Cmd.pageDown);
+    assert(decoder.at == [2, 0]);
     screen.clear();
-    view.draw(screen.canvas.sub(Rect(0, 0, 10, 2)), false);
-    assert(view.rowOff == 1 && !screen.cursorAt(0, 1));
+    decoder.draw(screen.canvas.sub(Rect(0, 0, 10, 2)), false);
+    assert(decoder.rowOff == 1 && !screen.cursorAt(0, 1));
 
     screen.clear();
-    view = textView("0123456789");
-    view.execute(Cmd.lineEnd);
-    view.draw(screen.canvas.sub(Rect(0, 0, 4, 1)), true);
+    decoder = textDecoder("0123456789");
+    decoder.execute(Cmd.lineEnd);
+    decoder.draw(screen.canvas.sub(Rect(0, 0, 4, 1)), true);
     assert(screen.rows[0] == "789       " && screen.cursorAt(3, 0));
-    assert(view.statusRight == "Ln 1/1, Col 11 · UTF-8");
+    assert(decoder.statusRight == "Ln 1/1, Col 11 · UTF-8");
 }

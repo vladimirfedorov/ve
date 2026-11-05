@@ -130,6 +130,14 @@ private string sgr(Style from, Style to) {
     return "\x1b[" ~ codes ~ "m";
 }
 
+// Cells that Canvas.text takes for s
+int textWidth(const(char)[] s) {
+    int n;
+    bool invalid;
+    for (size_t i = 0; i < s.length; n++) decodeUtf8(s, i, invalid);
+    return n;
+}
+
 // A clipped part of the screen
 // coordinates are relative to it
 struct Canvas {
