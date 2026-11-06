@@ -10,6 +10,8 @@
 //         Alt+w or Ctrl+w  close the buffer; asks again if there are unsaved changes
 //         Alt+t            new tab
 //         Alt+] / Alt+}    next/previous tab
+//         Alt+\ / Alt+|    split side by side / stacked
+//         Alt+' / Alt+"    next/previous split
 //         Alt+q or Ctrl+q  quit; asks again if there are unsaved changes
 // Custom keys: ~/.config/ve/keys
 
