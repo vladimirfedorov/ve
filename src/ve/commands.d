@@ -15,6 +15,7 @@ enum Cmd {
     quit, save, saveAs,
     open, closeBuffer, nextBuffer, prevBuffer,
     newTab, nextTab, prevTab,
+    splitVertical, splitHorizontal, nextSplit, prevSplit,
     cursorLeft, cursorRight, cursorUp, cursorDown,
     lineStart, lineEnd, pageUp, pageDown,
     newline, deleteBack, deleteForward, insertTab,
@@ -56,6 +57,10 @@ Keymap defaultKeymap() {
         alt('t'):       Cmd.newTab,
         alt('}'):       Cmd.prevTab,
         alt(']'):       Cmd.nextTab,
+        alt('\\'):      Cmd.splitVertical,
+        alt('|'):       Cmd.splitHorizontal,
+        alt('\''):      Cmd.nextSplit,
+        alt('"'):       Cmd.prevSplit,
     ];
     keymap.sections["text"] = [
         keyLeft:        Cmd.cursorLeft,
