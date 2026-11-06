@@ -8,6 +8,8 @@
 //         Alt+o or Ctrl+o  open a file in a new buffer (bottom tab)
 //         Alt+, / Alt+.    previous/next buffer
 //         Alt+w or Ctrl+w  close the buffer; asks again if there are unsaved changes
+//         Alt+t            new tab
+//         Alt+] / Alt+}    next/previous tab
 //         Alt+q or Ctrl+q  quit; asks again if there are unsaved changes
 // Custom keys: ~/.config/ve/keys
 
