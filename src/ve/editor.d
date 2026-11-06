@@ -80,6 +80,11 @@ final class Editor {
         openUntitled();
     }
 
+    void newSplit(bool vertical) {
+        layout.tab.split(vertical);
+        openUntitled();
+    }
+
     void save() {
         if (buffer.source.path.length == 0) return saveAs(false);
         saveDocument(buffer.source);
@@ -108,7 +113,6 @@ final class Editor {
         });
     }
 
-    // Closing the last buffer of a tab closes the tab; closing the last tab quits
     void closeBuffer(bool confirmed) {
         Document doc = buffer.source;
         if (doc.dirty && !confirmed && layout.buffers.count!(b => b.source is doc) == 1) {
@@ -116,9 +120,10 @@ final class Editor {
             pending = Cmd.closeBuffer;
             return;
         }
-        split.closeActive();
-        if (split.buffers.length) return;
-        layout.closeActive(); // a tab has one split for now
+        Split leaf = split;
+        leaf.closeActive();
+        if (leaf.buffers.length || layout.tab.close(leaf)) return;
+        layout.closeActive();
         if (layout.tabs.length == 0) running = false;
     }
 
@@ -186,6 +191,10 @@ final class Editor {
             case Cmd.newTab:      newTab(); break;
             case Cmd.nextTab:     layout.next(); break;
             case Cmd.prevTab:     layout.prev(); break;
+            case Cmd.splitVertical:   newSplit(true); break;
+            case Cmd.splitHorizontal: newSplit(false); break;
+            case Cmd.nextSplit:   layout.tab.nextSplit(); break;
+            case Cmd.prevSplit:   layout.tab.prevSplit(); break;
             default:              decoder.execute(cmd); break;
         }
     }
@@ -517,4 +526,45 @@ unittest {
     assert(editor.message == "2 files have unsaved changes, quit again to discard");
     editor.processKey(ctrl('q'));
     assert(!editor.running && readText(a) == "aaa\n");
+}
+
+// Splits
+unittest {
+    string dir = testDir("splits");
+    scope(exit) rmdirRecurse(dir);
+    string a = buildPath(dir, "a.txt");
+    writeFile(a, "aaa\n");
+
+    Editor editor = new Editor;
+    editor.open(a);
+    Split left = editor.split;
+    editor.processKey(alt('\\'));
+    Split right = editor.split;
+    assert(editor.layout.tab.leaves == [left, right] && editor.buffer.source.path is null);
+    editor.type("n");
+    assert(right.buffer.source.dirty && !left.buffer.source.dirty);
+    editor.processKey(alt('\'')); // wraps to the left
+    assert(editor.split is left);
+    editor.processKey(alt('"'));
+    assert(editor.split is right);
+
+    // The file of the other split: a buffer on the same document
+    editor.open(a);
+    assert(right.buffers.length == 2 && right.buffer.source is left.buffer.source);
+
+    editor.processKey(alt('|'));
+    assert(editor.layout.tab.leaves.length == 3 && editor.layout.tab.leaves[1] is right);
+    editor.render(41, 8);
+    assert(editor.screen.cellAt(20, 1).ch == '┃');
+
+    // A split's last buffer closes the split; the focus goes to the previous one at the end
+    editor.processKey(ctrl('w'));
+    assert(editor.layout.tab.leaves == [left, right] && editor.split is right);
+    editor.processKey(ctrl('w')); // the left split still shows a.txt: no question
+    assert(right.buffers.length == 1 && editor.message is null);
+    editor.processKey(ctrl('w')); // the untitled buffer is modified
+    editor.processKey(ctrl('w'));
+    assert(editor.layout.tab.leaves == [left] && editor.split is left);
+    editor.processKey(ctrl('w')); // the last split of the last tab
+    assert(!editor.running);
 }
