@@ -31,7 +31,7 @@ private struct Prompt {
 }
 
 final class Editor {
-    Split split;
+    Layout layout;
     Screen screen;
     Keymap keymap;
     string message;
@@ -43,9 +43,11 @@ final class Editor {
     this() {
         keymap = defaultKeymap();
         screen = new Screen(0, 0);
-        split = new Split;
+        layout = new Layout;
+        layout.add(new Tab);
     }
 
+    Split split() { return layout.tab.focused; }
     Buffer buffer() { return split.buffer; }
     Decoder decoder() { return split.buffer.decoder; }
 
@@ -59,11 +61,24 @@ final class Editor {
                 return;
             }
         }
-        split.add(textBuffer(new Document(path)));
+        Document doc = findDocument(path); // open in another split or tab: share it
+        split.add(textBuffer(doc ? doc : new Document(path)));
         if (!exists(path)) message = "New file";
     }
 
+    // The document of a file that a buffer shows, or null
+    Document findDocument(string path) {
+        foreach (b; layout.buffers)
+            if (b.source.path.length && samePath(b.source.path, path)) return b.source;
+        return null;
+    }
+
     void openUntitled() { split.add(textBuffer(new Document)); }
+
+    void newTab() {
+        layout.add(new Tab);
+        openUntitled();
+    }
 
     void save() {
         if (buffer.source.path.length == 0) return saveAs(false);
@@ -75,6 +90,11 @@ final class Editor {
         Document doc = buffer.source;
         ask("Save as: ", confirmed ? overwrite : doc.path, (string path) {
             if (path.length == 0) return;
+            Document other = findDocument(path);
+            if (other && other !is doc) {
+                message = format("%s is open in another buffer", path);
+                return;
+            }
             bool same = doc.path.length && samePath(doc.path, path);
             if (exists(path) && !same && !(confirmed && path == overwrite)) {
                 message = format("%s exists, save as again to overwrite", path);
@@ -88,16 +108,18 @@ final class Editor {
         });
     }
 
-    // Closing the last buffer quits
+    // Closing the last buffer of a tab closes the tab; closing the last tab quits
     void closeBuffer(bool confirmed) {
         Document doc = buffer.source;
-        if (doc.dirty && !confirmed && split.buffers.count!(b => b.source is doc) == 1) {
+        if (doc.dirty && !confirmed && layout.buffers.count!(b => b.source is doc) == 1) {
             message = format("%s has unsaved changes, close again to discard", doc.name);
             pending = Cmd.closeBuffer;
             return;
         }
         split.closeActive();
-        if (split.buffers.length == 0) running = false;
+        if (split.buffers.length) return;
+        layout.closeActive(); // a tab has one split for now
+        if (layout.tabs.length == 0) running = false;
     }
 
     void quit(bool confirmed) {
@@ -115,7 +137,7 @@ final class Editor {
     // Every open document, once
     Document[] documents() {
         Document[] docs;
-        foreach (b; split.buffers)
+        foreach (b; layout.buffers)
             if (!docs.canFind!(d => d is b.source)) docs ~= b.source;
         return docs;
     }
@@ -161,6 +183,9 @@ final class Editor {
             case Cmd.closeBuffer: closeBuffer(confirming == Cmd.closeBuffer); break;
             case Cmd.nextBuffer:  split.next(); break;
             case Cmd.prevBuffer:  split.prev(); break;
+            case Cmd.newTab:      newTab(); break;
+            case Cmd.nextTab:     layout.next(); break;
+            case Cmd.prevTab:     layout.prev(); break;
             default:              decoder.execute(cmd); break;
         }
     }
@@ -238,7 +263,7 @@ final class Editor {
         screen.resize(cols, rows);
         screen.clear();
         Canvas canvas = screen.canvas;
-        split.draw(canvas.sub(Rect(0, 0, cols, rows - 2)), prompt.done is null);
+        layout.draw(canvas.sub(Rect(0, 0, cols, rows - 2)), prompt.done is null);
         drawStatusBar(canvas.sub(Rect(0, rows - 2, cols, 1)));
         drawMessageBar(canvas.sub(Rect(0, rows - 1, cols, 1)));
     }
@@ -439,4 +464,57 @@ unittest {
     editor.processKey(alt('S'));
     editor.processKey('\r');
     assert(readText(a) == "hello!" && !editor.buffer.source.dirty);
+}
+
+// Top tabs: a new tab, switching, one document per file, closing
+unittest {
+    import std.algorithm.searching : startsWith;
+    import std.string : stripRight;
+
+    string dir = testDir("tabs");
+    scope(exit) rmdirRecurse(dir);
+    string a = buildPath(dir, "a.txt");
+    writeFile(a, "aaa\n");
+
+    Editor editor = new Editor;
+    editor.open(a);
+    editor.processKey(alt('t'));
+    assert(editor.layout.tabs.length == 2 && editor.layout.active == 1 && editor.buffer.source.path is null);
+    editor.render(30, 5);
+    assert(editor.screen.rows[0].stripRight == " 1  2 │ untitled");
+    editor.processKey(alt(']'));
+    assert(editor.layout.active == 0);
+    editor.processKey(alt(']'));
+    assert(editor.layout.active == 1);
+
+    // A file open in another tab gets a buffer on the same document
+    editor.open(a);
+    Document doc = editor.buffer.source;
+    assert(editor.split.buffers.length == 2 && doc is editor.layout.tabs[0].root.buffer.source);
+    editor.type("x");
+    assert(editor.layout.tabs[0].root.buffer.source.dirty);
+    editor.processKey(ctrl('w')); // tab 1 still shows it: no question
+    assert(editor.split.buffers.length == 1 && editor.message is null);
+
+    // Save as onto a file another buffer shows is refused
+    editor.type("u");
+    editor.processKey(alt('S'));
+    editor.type(a);
+    editor.processKey('\r');
+    assert(editor.message == a ~ " is open in another buffer" && editor.buffer.source.path is null);
+
+    // Closing the last buffer of a tab closes the tab
+    editor.processKey(ctrl('w'));
+    editor.processKey(ctrl('w'));
+    assert(editor.layout.tabs.length == 1 && editor.buffer.source is doc);
+    editor.render(30, 5);
+    assert(editor.screen.rows[0].startsWith(" a.txt* "));
+
+    // Quit counts modified documents in all tabs
+    editor.processKey(alt('t'));
+    editor.type("n");
+    editor.processKey(ctrl('q'));
+    assert(editor.message == "2 files have unsaved changes, quit again to discard");
+    editor.processKey(ctrl('q'));
+    assert(!editor.running && readText(a) == "aaa\n");
 }
