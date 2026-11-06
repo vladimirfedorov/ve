@@ -14,6 +14,7 @@ enum Cmd {
     none, // unbinds action
     quit, save, saveAs,
     open, closeBuffer, nextBuffer, prevBuffer,
+    newTab, nextTab, prevTab,
     cursorLeft, cursorRight, cursorUp, cursorDown,
     lineStart, lineEnd, pageUp, pageDown,
     newline, deleteBack, deleteForward, insertTab,
@@ -52,6 +53,9 @@ Keymap defaultKeymap() {
         ctrl('w'):      Cmd.closeBuffer,
         alt('.'):       Cmd.nextBuffer,
         alt(','):       Cmd.prevBuffer,
+        alt('t'):       Cmd.newTab,
+        alt('}'):       Cmd.prevTab,
+        alt(']'):       Cmd.nextTab,
     ];
     keymap.sections["text"] = [
         keyLeft:        Cmd.cursorLeft,
